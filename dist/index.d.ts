@@ -633,8 +633,30 @@ declare namespace net {
         address: string;
         family: NetFamilyType;
     }
+    interface FetchFormDataItem {
+        name: string;
+        value: string;
+        filename?: string;
+        contentType?: string;
+        contentLength?: number;
+    }
+    interface FetchRequest {
+        method: string;
+        url: string;
+        headers: string;
+        isFormData?: boolean;
+        body?: string | FetchFormDataItem[];
+    }
+    type BrowserResponse = globalThis.Response;
+    interface FetchResponse {
+        status: number;
+        statusText: string;
+        headers: Record<string, string>;
+        body: string; // Base64 encoded string
+    }
     function resolveHost(hostname: string): Promise<NetHost[]>;
     function isOnline(): Promise<boolean>;
+    function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<BrowserResponse>;
 }
 interface InitOptions {
     exportCustomMethods?: boolean;
@@ -875,9 +897,30 @@ interface NetHost {
     address: string;
     family: NetFamilyType;
 }
+interface FetchFormDataItem {
+    name: string;
+    value: string;
+    filename?: string;
+    contentType?: string;
+    contentLength?: number;
+}
+interface FetchRequest {
+    method: string;
+    url: string;
+    headers: string;
+    isFormData?: boolean;
+    body?: string | FetchFormDataItem[];
+}
+type BrowserResponse = globalThis.Response;
+interface FetchResponse {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: string; // Base64 encoded string
+}
 interface Response {
     success: boolean;
     message: string;
 }
 type Builtin = "ready" | "trayMenuItemClicked" | "windowClose" | "serverOffline" | "clientConnect" | "clientDisconnect" | "appClientConnect" | "appClientDisconnect" | "extClientConnect" | "extClientDisconnect" | "extensionReady" | "neuDev_reloadApp";
-export { filesystem, os, computer, storage, debug, app, window, events, extensions, updater, clipboard, resources, server, custom, net, init, ErrorCode, Error, OpenActionOptions, RestartOptions, MemoryInfo, KernelInfo, OSInfo, CPUInfo, Display, Resolution, MousePosition, ClipboardImage, ExtensionStats, DirectoryEntry, FileReaderOptions, DirectoryReaderOptions, OpenedFile, Stats, Watcher, CopyOptions, PathParts, Permissions, PermissionsMode, InitOptions, ExecCommandOptions, ExecCommandResult, SpawnedProcess, SpawnedProcessOptions, Envs, OpenDialogOptions, FolderDialogOptions, SaveDialogOptions, Filter, TrayOptions, TrayMenuItem, KnownPath, Manifest, WindowOptions, WindowSizeOptions, WindowPosOptions, WindowMenu, WindowMenuItem, NetFamilyType, NetHost, LoggerType, Icon, MessageBoxChoice, ClipboardFormat, Mode, OperatingSystem, Architecture, Response, Builtin };
+export { filesystem, os, computer, storage, debug, app, window, events, extensions, updater, clipboard, resources, server, custom, net, init, ErrorCode, Error, OpenActionOptions, RestartOptions, MemoryInfo, KernelInfo, OSInfo, CPUInfo, Display, Resolution, MousePosition, ClipboardImage, ExtensionStats, DirectoryEntry, FileReaderOptions, DirectoryReaderOptions, OpenedFile, Stats, Watcher, CopyOptions, PathParts, Permissions, PermissionsMode, InitOptions, ExecCommandOptions, ExecCommandResult, SpawnedProcess, SpawnedProcessOptions, Envs, OpenDialogOptions, FolderDialogOptions, SaveDialogOptions, Filter, TrayOptions, TrayMenuItem, KnownPath, Manifest, WindowOptions, WindowSizeOptions, WindowPosOptions, WindowMenu, WindowMenuItem, NetFamilyType, NetHost, FetchFormDataItem, FetchRequest, BrowserResponse, FetchResponse, LoggerType, Icon, MessageBoxChoice, ClipboardFormat, Mode, OperatingSystem, Architecture, Response, Builtin };

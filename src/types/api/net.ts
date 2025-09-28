@@ -8,3 +8,28 @@ export interface NetHost {
     address: string;
     family: NetFamilyType;
 }
+
+export interface FetchFormDataItem {
+  name: string;
+  value: string;
+  filename?: string;
+  contentType?: string;
+  contentLength?: number;
+}
+
+export interface FetchRequest {
+  method: string;
+  url: string;
+  headers: string;
+  isFormData?: boolean;
+  body?: string | FetchFormDataItem[];
+}
+
+export type BrowserResponse = globalThis.Response;
+
+export interface FetchResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string; // Base64 encoded string
+}

@@ -545,8 +545,30 @@ namespace net {
         address: string;
         family: NetFamilyType;
     }
+    interface FetchFormDataItem {
+        name: string;
+        value: string;
+        filename?: string;
+        contentType?: string;
+        contentLength?: number;
+    }
+    interface FetchRequest {
+        method: string;
+        url: string;
+        headers: string;
+        isFormData?: boolean;
+        body?: string | FetchFormDataItem[];
+    }
+    type BrowserResponse = globalThis.Response;
+    interface FetchResponse {
+        status: number;
+        statusText: string;
+        headers: Record<string, string>;
+        body: string; // Base64 encoded string
+    }
     function resolveHost(hostname: string): Promise<NetHost[]>;
     function isOnline(): Promise<boolean>;
+    function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<BrowserResponse>;
 }
 interface InitOptions {
     exportCustomMethods?: boolean;
@@ -786,6 +808,27 @@ declare enum NetFamilyType {
 interface NetHost {
     address: string;
     family: NetFamilyType;
+}
+interface FetchFormDataItem {
+    name: string;
+    value: string;
+    filename?: string;
+    contentType?: string;
+    contentLength?: number;
+}
+interface FetchRequest {
+    method: string;
+    url: string;
+    headers: string;
+    isFormData?: boolean;
+    body?: string | FetchFormDataItem[];
+}
+type BrowserResponse = globalThis.Response;
+interface FetchResponse {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: string; // Base64 encoded string
 }
 interface Response {
     success: boolean;

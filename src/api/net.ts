@@ -1,6 +1,7 @@
 import { sendMessage } from '../ws/websocket';
-import type { BrowserResponse, FetchFormDataItem, FetchRequest, FetchResponse, NetHost } from '../types/api/net';
+import type { BrowserResponse, DownloadProgress, DownloadRequest, FetchFormDataItem, FetchRequest, FetchResponse, NetHost } from '../types/api/net';
 import { arrayBufferToBase64, base64ToBytesArray } from '../helpers';
+import { off, on } from '../browser/events';
 
 export function resolveHost(hostname: string): Promise<NetHost[]> {
     return sendMessage('net.resolveHost', { hostname });
@@ -10,7 +11,7 @@ export function isOnline(): Promise<boolean> {
     return sendMessage('net.isOnline');
 };
 
-function createRequest(input: URL | string, init?: RequestInit): Request {
+function createRequest(input: URL | string, init: RequestInit = {}): Request {
     const options = {
         // Default options
         body: null,
@@ -98,5 +99,32 @@ export async function fetch(input: RequestInfo | URL, init?: RequestInit): Promi
     const neutralinoFetch = await createNeutralinoRequest(request);
 
     const rawResponse = await sendMessage('net.fetch', neutralinoFetch);
+    return parseNeutralinoResponse(rawResponse);
+}
+
+export async function download(filename: string, input: RequestInfo | URL, callback?: (progress: DownloadProgress) => void): Promise<BrowserResponse> {
+    const request = input instanceof Request ? input : createRequest(input);
+    const neutralinoRequest = await createNeutralinoRequest(request);
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const uid = "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c: any) =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+
+    const onProgress = () => {
+        callback?.({ uid, filename, contentLength: 0, bytesWritten: 0 });
+    };
+
+    if (callback) {
+        on(`net.download.progress:${uid}`, onProgress);
+    }
+
+    const neutralinoDownload: DownloadRequest = { ...neutralinoRequest, filename, uid };
+    const rawResponse = await sendMessage('net.download', neutralinoDownload);
+
+    if (callback) {
+        off(`net.download.progress:${uid}`, onProgress);
+    }
+
     return parseNeutralinoResponse(rawResponse);
 }

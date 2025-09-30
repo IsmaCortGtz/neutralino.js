@@ -559,6 +559,16 @@ namespace net {
         isFormData?: boolean;
         body?: string | FetchFormDataItem[];
     }
+    interface DownloadRequest extends FetchRequest {
+        uid: string;
+        filename: string;
+    }
+    interface DownloadProgress {
+        uid: string;
+        filename: string;
+        contentLength: number;
+        bytesWritten: number;
+    }
     type BrowserResponse = globalThis.Response;
     interface FetchResponse {
         status: number;
@@ -569,6 +579,7 @@ namespace net {
     function resolveHost(hostname: string): Promise<NetHost[]>;
     function isOnline(): Promise<boolean>;
     function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<BrowserResponse>;
+    function download(filename: string, input: RequestInfo | URL, callback?: (progress: DownloadProgress) => void): Promise<BrowserResponse>;
 }
 interface InitOptions {
     exportCustomMethods?: boolean;
@@ -822,6 +833,16 @@ interface FetchRequest {
     headers: string;
     isFormData?: boolean;
     body?: string | FetchFormDataItem[];
+}
+interface DownloadRequest extends FetchRequest {
+    uid: string;
+    filename: string;
+}
+interface DownloadProgress {
+    uid: string;
+    filename: string;
+    contentLength: number;
+    bytesWritten: number;
 }
 type BrowserResponse = globalThis.Response;
 interface FetchResponse {

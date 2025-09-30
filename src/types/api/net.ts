@@ -25,6 +25,18 @@ export interface FetchRequest {
   body?: string | FetchFormDataItem[];
 }
 
+export interface DownloadRequest extends FetchRequest {
+  uid: string;
+  filename: string;
+}
+
+export interface DownloadProgress {
+  uid: string;
+  filename: string;
+  contentLength: number;
+  bytesWritten: number;
+}
+
 export type BrowserResponse = globalThis.Response;
 
 export interface FetchResponse {

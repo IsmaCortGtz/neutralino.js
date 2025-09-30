@@ -11,7 +11,7 @@ export function isOnline(): Promise<boolean> {
     return sendMessage('net.isOnline');
 };
 
-function createRequest(input: URL | string, init: RequestInit = {}): Request {
+function createRequest(input: URL | string, init?: RequestInit): Request {
     const options = {
         // Default options
         body: null,

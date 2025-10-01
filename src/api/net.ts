@@ -85,6 +85,7 @@ async function createNeutralinoRequest(request: Request): Promise<FetchRequest> 
 
 function parseNeutralinoResponse(neutralinoResponse: FetchResponse): BrowserResponse {
     const headers = new Headers(neutralinoResponse.headers);
+    console.log('neutralinoResponse', neutralinoResponse);
     const body = neutralinoResponse.body.trim() ? base64ToBytesArray(neutralinoResponse.body) : null;
 
     return new Response(body, {

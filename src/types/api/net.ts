@@ -18,30 +18,35 @@ export interface FetchFormDataItem {
 }
 
 export interface FetchRequest {
+  uuidv4: string;
   method: string;
   url: string;
   headers: string;
   isFormData?: boolean;
   body?: string | FetchFormDataItem[];
-}
-
-export interface DownloadRequest extends FetchRequest {
-  uid: string;
-  filename: string;
-}
-
-export interface DownloadProgress {
-  uid: string;
-  filename: string;
-  contentLength: number;
-  bytesWritten: number;
+  followRedirects: boolean;
 }
 
 export type BrowserResponse = globalThis.Response;
+
+export interface RawFetchResponse {
+  success: boolean;
+  returnValue?: FetchResponse;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
 
 export interface FetchResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
   body: string; // Base64 encoded string
+}
+
+export interface DownloadProgress {
+  uuidv4: string;
+  downloadedBytes: number;
+  totalBytes: number;
 }

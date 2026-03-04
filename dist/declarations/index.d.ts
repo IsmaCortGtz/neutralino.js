@@ -641,33 +641,38 @@ declare namespace net {
         contentLength?: number;
     }
     interface FetchRequest {
+        uuidv4: string;
         method: string;
         url: string;
         headers: string;
         isFormData?: boolean;
         body?: string | FetchFormDataItem[];
-    }
-    interface DownloadRequest extends FetchRequest {
-        uid: string;
-        filename: string;
-    }
-    interface DownloadProgress {
-        uid: string;
-        filename: string;
-        contentLength: number;
-        bytesWritten: number;
+        followRedirects: boolean;
     }
     type BrowserResponse = globalThis.Response;
+    interface RawFetchResponse {
+        success: boolean;
+        returnValue?: FetchResponse;
+        error?: {
+            code: string;
+            message: string;
+        };
+    }
     interface FetchResponse {
         status: number;
         statusText: string;
         headers: Record<string, string>;
         body: string; // Base64 encoded string
     }
+    interface DownloadProgress {
+        uuidv4: string;
+        downloadedBytes: number;
+        totalBytes: number;
+    }
+    /* Controllers */
     function resolveHost(hostname: string): Promise<NetHost[]>;
-    function isOnline(): Promise<boolean>;
-    function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<BrowserResponse>;
-    function download(filename: string, input: RequestInfo | URL, callback?: (progress: DownloadProgress) => void): Promise<BrowserResponse>;
+    function fetch(input: URL | string, init?: RequestInit): Promise<BrowserResponse>;
+    function download(path: string, input: URL | string, init?: RequestInit, progressCallback?: (progress: DownloadProgress) => unknown): Promise<BrowserResponse>;
 }
 interface InitOptions {
     exportCustomMethods?: boolean;
@@ -916,32 +921,37 @@ interface FetchFormDataItem {
     contentLength?: number;
 }
 interface FetchRequest {
+    uuidv4: string;
     method: string;
     url: string;
     headers: string;
     isFormData?: boolean;
     body?: string | FetchFormDataItem[];
-}
-interface DownloadRequest extends FetchRequest {
-    uid: string;
-    filename: string;
-}
-interface DownloadProgress {
-    uid: string;
-    filename: string;
-    contentLength: number;
-    bytesWritten: number;
+    followRedirects: boolean;
 }
 type BrowserResponse = globalThis.Response;
+interface RawFetchResponse {
+    success: boolean;
+    returnValue?: FetchResponse;
+    error?: {
+        code: string;
+        message: string;
+    };
+}
 interface FetchResponse {
     status: number;
     statusText: string;
     headers: Record<string, string>;
     body: string; // Base64 encoded string
 }
+interface DownloadProgress {
+    uuidv4: string;
+    downloadedBytes: number;
+    totalBytes: number;
+}
 interface Response {
     success: boolean;
     message: string;
 }
 type Builtin = "ready" | "trayMenuItemClicked" | "windowClose" | "serverOffline" | "clientConnect" | "clientDisconnect" | "appClientConnect" | "appClientDisconnect" | "extClientConnect" | "extClientDisconnect" | "extensionReady" | "neuDev_reloadApp";
-export { filesystem, os, computer, storage, debug, app, window, events, extensions, updater, clipboard, resources, server, custom, net, init, ErrorCode, Error, OpenActionOptions, RestartOptions, MemoryInfo, KernelInfo, OSInfo, CPUInfo, Display, Resolution, MousePosition, ClipboardImage, ExtensionStats, DirectoryEntry, FileReaderOptions, DirectoryReaderOptions, OpenedFile, Stats, Watcher, CopyOptions, PathParts, Permissions, PermissionsMode, InitOptions, ExecCommandOptions, ExecCommandResult, SpawnedProcess, SpawnedProcessOptions, Envs, OpenDialogOptions, FolderDialogOptions, SaveDialogOptions, Filter, TrayOptions, TrayMenuItem, KnownPath, Manifest, WindowOptions, WindowSizeOptions, WindowPosOptions, WindowMenu, WindowMenuItem, NetFamilyType, NetHost, FetchFormDataItem, FetchRequest, DownloadRequest, DownloadProgress, BrowserResponse, FetchResponse, LoggerType, Icon, MessageBoxChoice, ClipboardFormat, Mode, OperatingSystem, Architecture, Response, Builtin };
+export { filesystem, os, computer, storage, debug, app, window, events, extensions, updater, clipboard, resources, server, custom, net, init, ErrorCode, Error, OpenActionOptions, RestartOptions, MemoryInfo, KernelInfo, OSInfo, CPUInfo, Display, Resolution, MousePosition, ClipboardImage, ExtensionStats, DirectoryEntry, FileReaderOptions, DirectoryReaderOptions, OpenedFile, Stats, Watcher, CopyOptions, PathParts, Permissions, PermissionsMode, InitOptions, ExecCommandOptions, ExecCommandResult, SpawnedProcess, SpawnedProcessOptions, Envs, OpenDialogOptions, FolderDialogOptions, SaveDialogOptions, Filter, TrayOptions, TrayMenuItem, KnownPath, Manifest, WindowOptions, WindowSizeOptions, WindowPosOptions, WindowMenu, WindowMenuItem, NetFamilyType, NetHost, FetchFormDataItem, FetchRequest, BrowserResponse, RawFetchResponse, FetchResponse, DownloadProgress, LoggerType, Icon, MessageBoxChoice, ClipboardFormat, Mode, OperatingSystem, Architecture, Response, Builtin };

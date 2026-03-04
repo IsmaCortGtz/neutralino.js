@@ -1,17 +1,20 @@
-import { sendMessage } from '../ws/websocket';
-import type { BrowserResponse, DownloadProgress, DownloadRequest, FetchFormDataItem, FetchRequest, FetchResponse, NetHost } from '../types/api/net';
+import { sendMessage, uuidv4 } from '../ws/websocket';
+import type { BrowserResponse, DownloadProgress, FetchFormDataItem, FetchRequest, FetchResponse, NetHost, RawFetchResponse } from '../types/api/net';
 import { arrayBufferToBase64, base64ToBytesArray } from '../helpers';
 import { off, on } from '../browser/events';
 
-export function resolveHost(hostname: string): Promise<NetHost[]> {
-    return sendMessage('net.resolveHost', { hostname });
-};
+/* Error */
+function returnNetworkError(code: string, message: string) {
+    return {
+        code: code || 'NE_NW_UNKNOWN',
+        message,
+    }
+}
 
-export function isOnline(): Promise<boolean> {
-    return sendMessage('net.isOnline');
-};
 
-function createRequest(input: URL | string, init?: RequestInit): Request {
+/* Internal functions */
+
+async function createNeutralinoRequest(input: URL | string, init?: RequestInit): Promise<FetchRequest> {
     const options = {
         // Default options
         body: null,
@@ -19,44 +22,54 @@ function createRequest(input: URL | string, init?: RequestInit): Request {
         integrity: '',
         keepalive: true,
         method: 'GET',
+        signal: null,
+        redirect: 'follow' as const,
 
         ...init,
 
         // Non configurable options
-        cache: 'no-store',
-        credentials: 'omit',
-        mode: 'cors',
-        priority: 'auto',
-        redirect: 'manual',
+        cache: 'no-store' as const,
+        credentials: 'omit' as const,
+        mode: 'cors' as const,
+        priority: 'auto' as const,
         referrer: '',
-        referrerPolicy: 'no-referrer',
-        signal: null,
+        referrerPolicy: 'no-referrer' as const,
         window: null,
     };
 
+    if (options.keepalive) {
+        if (options.headers instanceof Headers) options.headers.set('Connection', 'keep-alive');
+        else if (typeof options.headers === 'object') options.headers['Connection'] = 'keep-alive';
+    }
     if (options.body && ['GET', 'HEAD'].includes(options.method.toUpperCase())) {
         throw new TypeError('Request with GET or HEAD method cannot have body.');
     }
+    if (options.body instanceof URLSearchParams) {
+        if (options.headers instanceof Headers) options.headers.set('Content-Type', 'application/x-www-form-urlencoded');
+        else if (typeof options.headers === 'object') options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
 
-    const req = new Request(input, init);
-    if (options.keepalive) req.headers.set('Connection', 'keep-alive');
-    return req;
-}
+    // Only for internal validation
+    let _headers = '';
+    const request = new Request(input, options);
+    const iterator = options.headers instanceof Headers
+        ? options.headers.entries()
+        : Object.entries(options.headers);
 
-async function createNeutralinoRequest(request: Request): Promise<FetchRequest> {
-    let headers = "";
-    for (const [key, value] of request.headers.entries()) {
-        headers += `${key}: ${value}\r\n`;
+    for (const [key, value] of iterator) {
+        _headers += `${key}: ${value}\r\n`;
     }
 
     const neutralinoFetch: FetchRequest = {
-        method: request.method,
-        url: request.url,
-        headers,
+        uuidv4: uuidv4(),
+        method: options.method,
+        url: input.toString(),
+        headers: _headers,
         isFormData: false,
+        followRedirects: options.redirect === 'follow',
     };
 
-    if (request.headers.get("Content-Type")?.includes("multipart/form-data")) {
+    if (options.body instanceof FormData) {
         neutralinoFetch.isFormData = true;
         const formData = await request.formData();
         const formDataItems: FetchFormDataItem[] = [];
@@ -85,47 +98,135 @@ async function createNeutralinoRequest(request: Request): Promise<FetchRequest> 
 
 function parseNeutralinoResponse(neutralinoResponse: FetchResponse): BrowserResponse {
     const headers = new Headers(neutralinoResponse.headers);
-    console.log('neutralinoResponse', neutralinoResponse);
-    const body = neutralinoResponse.body.trim() ? base64ToBytesArray(neutralinoResponse.body) : null;
+    const body = neutralinoResponse?.body ? base64ToBytesArray(neutralinoResponse.body) : null;
 
-    return new Response(body, {
+    return new Response(body as ArrayBuffer, {
         status: neutralinoResponse.status,
         statusText: neutralinoResponse.statusText,
         headers: headers
     });
 }
 
-export async function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<BrowserResponse> {
-    const request = input instanceof Request ? input : createRequest(input, init);
-    const neutralinoFetch = await createNeutralinoRequest(request);
 
-    const rawResponse = await sendMessage('net.fetch', neutralinoFetch);
-    return parseNeutralinoResponse(rawResponse);
+
+/* Controllers */
+
+export function resolveHost(hostname: string): Promise<NetHost[]> {
+    return sendMessage('net.resolveHost', { hostname });
+};
+
+export function fetch(input: URL | string, init?: RequestInit): Promise<BrowserResponse> {
+    return new Promise<BrowserResponse>((resolve, reject) => {
+        (async () => {
+            if (!input) return reject(returnNetworkError('NE_RT_NATRTER', 'The input provided is invalid.'));
+            let aborted = init?.signal?.aborted;
+            let neutralinoFetch: FetchRequest | null = null;
+
+            const abortListener = () => {
+                if (aborted) return;
+                aborted = true;
+                
+                sendMessage('net.cancel', { uuidv4: neutralinoFetch?.uuidv4 });
+                if (neutralinoFetch) off(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
+                reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+            }
+
+            const responseListener = (event: { detail: RawFetchResponse }) => {
+                if (aborted) return;
+
+                if (init?.signal) init.signal?.removeEventListener('abort', abortListener);
+                if (neutralinoFetch) off(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
+
+                if (!event.detail.success) {
+                    reject(returnNetworkError(event.detail.error.code, event.detail.error.message));
+                    return;
+                }
+
+                if (init?.redirect === 'error' && event.detail.returnValue.status! >= 300 && event.detail.returnValue.status! < 400) {
+                    reject(returnNetworkError('NE_NW_REDIRECT', 'Redirects are not allowed for this request.'));
+                    return;
+                }
+
+                const response = parseNeutralinoResponse(event.detail.returnValue);
+                resolve(response);
+            }
+
+            if (init?.signal) {
+                if (aborted) return reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+                init.signal.addEventListener('abort', abortListener, { once: true });
+            }
+
+            if (aborted) return;
+            neutralinoFetch = await createNeutralinoRequest(input, init);
+
+            if (aborted) return;
+            await on(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
+            await sendMessage('net.fetch', neutralinoFetch);
+        })().catch(reject);
+    });
 }
 
-export async function download(filename: string, input: RequestInfo | URL, callback?: (progress: DownloadProgress) => void): Promise<BrowserResponse> {
-    const request = input instanceof Request ? input : createRequest(input);
-    const neutralinoRequest = await createNeutralinoRequest(request);
-    
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const uid = "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c: any) =>
-        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-    );
+export function download(path: string, input: URL | string, init?: RequestInit, progressCallback?: (progress: DownloadProgress) => unknown): Promise<BrowserResponse> {
+    return new Promise<BrowserResponse>((resolve, reject) => {
+        (async () => {
+            if (!input) return reject(returnNetworkError('NE_RT_NATRTER', 'The input provided is invalid.'));
+            let aborted = init?.signal?.aborted;
+            let neutralinoFetch: FetchRequest | null = null;
 
-    const onProgress = () => {
-        callback?.({ uid, filename, contentLength: 0, bytesWritten: 0 });
-    };
+            const progressListener = (event: CustomEvent<DownloadProgress>) => {
+                if (aborted) return;
+                if (event.detail.uuidv4 !== neutralinoFetch?.uuidv4) return;
 
-    if (callback) {
-        on(`net.download.progress:${uid}`, onProgress);
-    }
+                progressCallback?.(event.detail);
+            }
 
-    const neutralinoDownload: DownloadRequest = { ...neutralinoRequest, filename, uid };
-    const rawResponse = await sendMessage('net.download', neutralinoDownload);
+            const abortListener = () => {
+                if (aborted) return;
+                aborted = true;
+                
+                sendMessage('net.cancel', { uuidv4: neutralinoFetch?.uuidv4 });
+                if (neutralinoFetch) {
+                    off(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
+                    off(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
+                }
+                reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+            }
 
-    if (callback) {
-        off(`net.download.progress:${uid}`, onProgress);
-    }
+            const responseListener = (event: { detail: RawFetchResponse }) => {
+                if (aborted) return;
 
-    return parseNeutralinoResponse(rawResponse);
+                if (init?.signal) init.signal?.removeEventListener('abort', abortListener);
+                if (neutralinoFetch) {
+                    off(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
+                    off(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
+                }
+
+                if (!event.detail.success) {
+                    reject(returnNetworkError(event.detail.error.code, event.detail.error.message));
+                    return;
+                }
+
+                if (init?.redirect === 'error' && event.detail.returnValue.status! >= 300 && event.detail.returnValue.status! < 400) {
+                    reject(returnNetworkError('NE_NW_REDIRECT', 'Redirects are not allowed for this request.'));
+                    return;
+                }
+
+                const response = parseNeutralinoResponse(event.detail.returnValue);
+                resolve(response);
+            }
+
+            if (init?.signal) {
+                if (aborted) return reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+                init.signal.addEventListener('abort', abortListener, { once: true });
+            }
+
+            if (aborted) return;
+            neutralinoFetch = await createNeutralinoRequest(input, init);
+
+            if (aborted) return;
+            await on(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
+            await on(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
+            await sendMessage('net.download', neutralinoFetch);
+        })().catch(reject);
+    });
 }

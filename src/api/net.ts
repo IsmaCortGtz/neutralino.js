@@ -1,5 +1,5 @@
 import { sendMessage, uuidv4 } from '../ws/websocket';
-import type { BrowserResponse, DownloadProgress, FetchFormDataItem, FetchRequest, FetchResponse, NetHost, RawFetchResponse } from '../types/api/net';
+import type { BrowserResponse, DownloadInit, DownloadProgress, DownloadProgressEvent, FetchFormDataItem, FetchRequest, FetchResponse, NetHost, NeutralinoRequestOptions, RawFetchResponse } from '../types/api/net';
 import { arrayBufferToBase64, base64ToBytesArray } from '../helpers';
 import { off, on } from '../browser/events';
 
@@ -14,7 +14,7 @@ function returnNetworkError(code: string, message: string) {
 
 /* Internal functions */
 
-async function createNeutralinoRequest(input: URL | string, init?: RequestInit): Promise<FetchRequest> {
+async function createNeutralinoRequest(input: URL | string, init?: RequestInit, extra?: unknown): Promise<FetchRequest> {
     const options = {
         // Default options
         body: null,
@@ -93,6 +93,10 @@ async function createNeutralinoRequest(input: URL | string, init?: RequestInit):
         neutralinoFetch.body = arrayBufferToBase64(arrayBuffer);
     }
 
+    if (extra) {
+        Object.assign(neutralinoFetch, extra);
+    }
+
     return neutralinoFetch;
 }
 
@@ -107,6 +111,90 @@ function parseNeutralinoResponse(neutralinoResponse: FetchResponse): BrowserResp
     });
 }
 
+async function runNeutralinoRequest({
+    input,
+    init,
+    extra,
+    requestMessage,
+    responseEvent,
+    cancelEvent,
+    progressEvent,
+    onProgress,
+}: NeutralinoRequestOptions): Promise<BrowserResponse> {
+    return new Promise<BrowserResponse>((resolve, reject) => {
+        (async () => {
+            if (!input) return reject(returnNetworkError('NE_RT_NATRTER', 'The input provided is invalid.'));
+
+            let aborted = init?.signal?.aborted;
+            let neutralinoFetch: FetchRequest | null = null;
+
+            const cleanupListeners = () => {
+                if (init?.signal) init.signal.removeEventListener('abort', abortListener);
+                if (!neutralinoFetch) return;
+
+                off(`${responseEvent}:${neutralinoFetch.uuidv4}`, responseListener);
+
+                if (progressEvent) {
+                    off(`${progressEvent}:${neutralinoFetch.uuidv4}`, progressListener);
+                }
+            };
+
+            const rejectWithResponse = (event: { detail: RawFetchResponse }) => {
+                const error = event.detail.error;
+                const returnValue = event.detail.returnValue;
+
+                if (!event.detail.success || !error || !returnValue) {
+                    reject(returnNetworkError(error?.code || 'NE_NW_UNKNOWN', error?.message || 'The request failed.'));
+                    return;
+                }
+
+                if (init?.redirect === 'error' && returnValue.status >= 300 && returnValue.status < 400) {
+                    reject(returnNetworkError('NE_NW_REDIRECT', 'Redirects are not allowed for this request.'));
+                    return;
+                }
+
+                resolve(parseNeutralinoResponse(returnValue));
+            };
+
+            const responseListener = (event: { detail: RawFetchResponse }) => {
+                if (aborted) return;
+
+                cleanupListeners();
+                rejectWithResponse(event);
+            };
+
+            const progressListener = (event: CustomEvent<DownloadProgressEvent>) => {
+                console.log('Progress event received:', event);
+                if (aborted) return;
+                if (!event.detail.success) return;
+                onProgress?.(event.detail.returnValue as DownloadProgress);
+            };
+
+            const abortListener = () => {
+                if (aborted) return;
+                aborted = true;
+
+                cleanupListeners();
+                sendMessage(cancelEvent, { uuidv4: neutralinoFetch?.uuidv4 });
+                reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+            };
+
+            if (init?.signal) {
+                if (aborted) return reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
+                init.signal.addEventListener('abort', abortListener, { once: true });
+            }
+
+            if (aborted) return;
+            neutralinoFetch = await createNeutralinoRequest(input, init, extra);
+
+            if (aborted) return;
+            if (progressEvent && onProgress) await on(`${progressEvent}:${neutralinoFetch.uuidv4}`, progressListener);
+            await on(`${responseEvent}:${neutralinoFetch.uuidv4}`, responseListener);
+            await sendMessage(requestMessage, neutralinoFetch);
+        })().catch(reject);
+    });
+}
+
 
 
 /* Controllers */
@@ -116,117 +204,26 @@ export function resolveHost(hostname: string): Promise<NetHost[]> {
 };
 
 export function fetch(input: URL | string, init?: RequestInit): Promise<BrowserResponse> {
-    return new Promise<BrowserResponse>((resolve, reject) => {
-        (async () => {
-            if (!input) return reject(returnNetworkError('NE_RT_NATRTER', 'The input provided is invalid.'));
-            let aborted = init?.signal?.aborted;
-            let neutralinoFetch: FetchRequest | null = null;
-
-            const abortListener = () => {
-                if (aborted) return;
-                aborted = true;
-                
-                sendMessage('net.cancel', { uuidv4: neutralinoFetch?.uuidv4 });
-                if (neutralinoFetch) off(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
-                reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
-            }
-
-            const responseListener = (event: { detail: RawFetchResponse }) => {
-                if (aborted) return;
-
-                if (init?.signal) init.signal?.removeEventListener('abort', abortListener);
-                if (neutralinoFetch) off(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
-
-                if (!event.detail.success) {
-                    reject(returnNetworkError(event.detail.error.code, event.detail.error.message));
-                    return;
-                }
-
-                if (init?.redirect === 'error' && event.detail.returnValue.status! >= 300 && event.detail.returnValue.status! < 400) {
-                    reject(returnNetworkError('NE_NW_REDIRECT', 'Redirects are not allowed for this request.'));
-                    return;
-                }
-
-                const response = parseNeutralinoResponse(event.detail.returnValue);
-                resolve(response);
-            }
-
-            if (init?.signal) {
-                if (aborted) return reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
-                init.signal.addEventListener('abort', abortListener, { once: true });
-            }
-
-            if (aborted) return;
-            neutralinoFetch = await createNeutralinoRequest(input, init);
-
-            if (aborted) return;
-            await on(`net.fetch:${neutralinoFetch.uuidv4}`, responseListener);
-            await sendMessage('net.fetch', neutralinoFetch);
-        })().catch(reject);
+    return runNeutralinoRequest({
+        input,
+        init,
+        requestMessage: 'net.fetch',
+        responseEvent: 'net.fetch',
+        cancelEvent: 'net.cancel',
     });
 }
 
-export function download(path: string, input: URL | string, init?: RequestInit, progressCallback?: (progress: DownloadProgress) => unknown): Promise<BrowserResponse> {
-    return new Promise<BrowserResponse>((resolve, reject) => {
-        (async () => {
-            if (!input) return reject(returnNetworkError('NE_RT_NATRTER', 'The input provided is invalid.'));
-            let aborted = init?.signal?.aborted;
-            let neutralinoFetch: FetchRequest | null = null;
+export function download(path: string, input: URL | string, init?: DownloadInit): Promise<BrowserResponse> {
+    const progressInterval = Math.max(init?.progressInterval || 1000, 200); // Minimum 200ms to avoid flooding with progress events
 
-            const progressListener = (event: CustomEvent<DownloadProgress>) => {
-                if (aborted) return;
-                if (event.detail.uuidv4 !== neutralinoFetch?.uuidv4) return;
-
-                progressCallback?.(event.detail);
-            }
-
-            const abortListener = () => {
-                if (aborted) return;
-                aborted = true;
-                
-                sendMessage('net.cancel', { uuidv4: neutralinoFetch?.uuidv4 });
-                if (neutralinoFetch) {
-                    off(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
-                    off(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
-                }
-                reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
-            }
-
-            const responseListener = (event: { detail: RawFetchResponse }) => {
-                if (aborted) return;
-
-                if (init?.signal) init.signal?.removeEventListener('abort', abortListener);
-                if (neutralinoFetch) {
-                    off(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
-                    off(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
-                }
-
-                if (!event.detail.success) {
-                    reject(returnNetworkError(event.detail.error.code, event.detail.error.message));
-                    return;
-                }
-
-                if (init?.redirect === 'error' && event.detail.returnValue.status! >= 300 && event.detail.returnValue.status! < 400) {
-                    reject(returnNetworkError('NE_NW_REDIRECT', 'Redirects are not allowed for this request.'));
-                    return;
-                }
-
-                const response = parseNeutralinoResponse(event.detail.returnValue);
-                resolve(response);
-            }
-
-            if (init?.signal) {
-                if (aborted) return reject(returnNetworkError('NE_NW_REQCANC', 'The user aborted the request.'));
-                init.signal.addEventListener('abort', abortListener, { once: true });
-            }
-
-            if (aborted) return;
-            neutralinoFetch = await createNeutralinoRequest(input, init);
-
-            if (aborted) return;
-            await on(`net.download.progress:${neutralinoFetch.uuidv4}`, progressListener);
-            await on(`net.download.end:${neutralinoFetch.uuidv4}`, responseListener);
-            await sendMessage('net.download', neutralinoFetch);
-        })().catch(reject);
+    return runNeutralinoRequest({
+        input,
+        init,
+        extra: { path, progressInterval },
+        requestMessage: 'net.download',
+        responseEvent: 'net.download.end',
+        cancelEvent: 'net.cancel',
+        progressEvent: 'net.download.progress',
+        onProgress: init?.onProgress,
     });
 }
